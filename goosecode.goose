@@ -219,7 +219,11 @@ fn load_project_notes() {
 // Messages are kept as comma-separated JSON objects, ready to splice in.
 var history: u8[>..] = [];
 
+// Where each user message began in `history`, for /undo.
+var turn_marks: i64[>..<] = [];
+
 fn add_message(role: u8[:], content: u8[:]) {
+    if role == "user" { turn_marks.push(history.len); }
     if history.len > 0 { history.push(','); }
     history.append("{\"role\":");
     json::format_string(history, role);
@@ -460,6 +464,7 @@ fn load_session(name: u8[:]) {
     var data: u8[>..] = [];
     if !read_file(path, data) { print("no session '", name, "'"); return; }
     history.pop_n(history.len);
+    turn_marks.pop_n(turn_marks.len);
     history.append(data);
     print("loaded ", name, " (", history.len, " bytes of history)");
 }
@@ -476,7 +481,7 @@ fn print_help() {
     print("goosecode ", VERSION, " - a coding agent in Goose, powered by OpenRouter\n");
     print("usage: goosecode [options] [prompt]\n       goosecode login\n");
     print("options:\n  -m <model>   model id (default anthropic/claude-sonnet-4.5)\n  -y           auto-approve writes, edits and shell commands\n  -h, --help   this help\n  -v, --version\n");
-    print("session commands:\n  /model [filter]  pick a model\n  /clear           forget the conversation\n  /save [name]     save the conversation (default: last)\n  /load [name]     restore a saved conversation\n  /sessions        list saved conversations\n  /usage           tokens and cost this session\n  /login           log in again\n  /help            this help\n  /exit            quit (or Ctrl-D)");
+    print("session commands:\n  /model [filter]  pick a model\n  /clear           forget the conversation\n  /undo            drop the last exchange\n  /save [name]     save the conversation (default: last)\n  /load [name]     restore a saved conversation\n  /sessions        list saved conversations\n  /usage           tokens and cost this session\n  /login           log in again\n  /help            this help\n  /exit            quit (or Ctrl-D)");
 }
 
 fn main() {
@@ -545,7 +550,14 @@ fn main() {
         if text == "/load" { load_session("last"); continue; }
         if starts_with(text, "/load ") { load_session(trim(text[6..])); continue; }
         if text == "/sessions" { list_sessions(); continue; }
-        if text == "/clear" { history.pop_n(history.len); print("cleared"); continue; }
+        if text == "/clear" { history.pop_n(history.len); turn_marks.pop_n(turn_marks.len); print("cleared"); continue; }
+        if text == "/undo" {
+            if turn_marks.len == 0 { print("nothing to undo"); continue; }
+            let mark = turn_marks.pop();
+            history.pop_n(history.len - mark);
+            print("undid the last exchange (", turn_marks.len, " left)");
+            continue;
+        }
         if text == "/login" { if login() { key = load_key(); } continue; }
         if text == "/model" || text == "/models" { pick_model("", model); continue; }
         if starts_with(text, "/models ") { pick_model(trim(text[8..]), model); continue; }
