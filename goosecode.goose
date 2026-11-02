@@ -249,6 +249,37 @@ fn each_delta<F>(resp: u8[:]) {
     };
 }
 
+var total_in = 0;
+var total_out = 0;
+var total_cost = 0.0;
+
+fn money(v: f64) -> u8[>..] {
+    var s: u8[>..] = [];
+    format_flt(s, v, 4);
+    return str("$", s);
+}
+
+// Token counts and cost from the stream's final usage chunk.
+fn record_usage(resp: u8[:]) {
+    each_split(resp, '\n') {
+        if starts_with(it, "data: {") && find(it, "\"usage\"") >= 0 {
+            var doc: json::Node[>..] = [];
+            var dec: u8[>..] = [];
+            let root, err = json::parse(it[6..], doc, dec);
+            let usage = json::member(root, "usage");
+            if usage {
+                let pin, h1 = json::as_i64(json::member(usage, "prompt_tokens"));
+                let pout, h2 = json::as_i64(json::member(usage, "completion_tokens"));
+                let cost, h3 = json::as_f64(json::member(usage, "cost"));
+                if h1 { total_in += pin; }
+                if h2 { total_out += pout; }
+                if h3 { total_cost += cost; }
+                print("\x1b[2m  ", pin, " in / ", pout, " out", if h3 { str(" · ", money(cost)) } else { str("") }, "\x1b[0m");
+            }
+        }
+    };
+}
+
 // Tool call k's id, name and arguments, pieced together from the deltas.
 fn assemble(resp: u8[:], k: i64, id: u8[>..]&, name: u8[>..]&, args: u8[>..]&) {
     each_delta(resp) { delta =>
@@ -274,7 +305,7 @@ fn assemble(resp: u8[:], k: i64, id: u8[>..]&, name: u8[>..]&, args: u8[>..]&) {
 fn turn(key: u8[:], model: u8[:]) {
     loop {
         var body: u8[>..] = [];
-        body.append("{\"stream\":true,\"model\":");
+        body.append("{\"stream\":true,\"usage\":{\"include\":true},\"model\":");
         json::format_string(body, model);
         body.append(",\"messages\":[{\"role\":\"system\",\"content\":");
         var system: u8[>..] = [];
@@ -302,6 +333,7 @@ fn turn(key: u8[:], model: u8[:]) {
             return;
         }
 
+        record_usage(resp);
         var content: u8[>..] = [];
         var ncalls = 0;
         each_delta(resp) { delta =>
@@ -444,7 +476,7 @@ fn print_help() {
     print("goosecode ", VERSION, " - a coding agent in Goose, powered by OpenRouter\n");
     print("usage: goosecode [options] [prompt]\n       goosecode login\n");
     print("options:\n  -m <model>   model id (default anthropic/claude-sonnet-4.5)\n  -y           auto-approve writes, edits and shell commands\n  -h, --help   this help\n  -v, --version\n");
-    print("session commands:\n  /model [filter]  pick a model\n  /clear           forget the conversation\n  /save [name]     save the conversation (default: last)\n  /load [name]     restore a saved conversation\n  /sessions        list saved conversations\n  /login           log in again\n  /help            this help\n  /exit            quit (or Ctrl-D)");
+    print("session commands:\n  /model [filter]  pick a model\n  /clear           forget the conversation\n  /save [name]     save the conversation (default: last)\n  /load [name]     restore a saved conversation\n  /sessions        list saved conversations\n  /usage           tokens and cost this session\n  /login           log in again\n  /help            this help\n  /exit            quit (or Ctrl-D)");
 }
 
 fn main() {
@@ -504,6 +536,10 @@ fn main() {
         if text.len == 0 { continue; }
         if text == "/exit" { break; }
         if text == "/help" { print_help(); continue; }
+        if text == "/usage" {
+            print("session: ", total_in, " tokens in, ", total_out, " out, ", money(total_cost));
+            continue;
+        }
         if text == "/save" { save_session("last"); continue; }
         if starts_with(text, "/save ") { save_session(trim(text[6..])); continue; }
         if text == "/load" { load_session("last"); continue; }
