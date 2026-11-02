@@ -34,7 +34,7 @@ let CALLBACK_PORT: i32 = 3000;
 let SYSTEM_PROMPT = "You are goosecode, a concise coding agent running in the user's terminal. Use the tools to inspect and change files and run commands in the current working directory. Prefer small, verified steps. When done, summarize briefly.";
 
 // name, description, parameter schema -- OpenAI tool format.
-let TOOLS = "[{\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"description\":\"Read a text file.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}}},{\"type\":\"function\",\"function\":{\"name\":\"write_file\",\"description\":\"Create or overwrite a file.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"content\":{\"type\":\"string\"}},\"required\":[\"path\",\"content\"]}}},{\"type\":\"function\",\"function\":{\"name\":\"edit_file\",\"description\":\"Replace one exact, unique occurrence of old_text with new_text in a file.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"old_text\":{\"type\":\"string\"},\"new_text\":{\"type\":\"string\"}},\"required\":[\"path\",\"old_text\",\"new_text\"]}}},{\"type\":\"function\",\"function\":{\"name\":\"list_dir\",\"description\":\"List a directory.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}}},{\"type\":\"function\",\"function\":{\"name\":\"bash\",\"description\":\"Run a shell command; returns combined output and exit status.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"command\":{\"type\":\"string\"}},\"required\":[\"command\"]}}},{\"type\":\"function\",\"function\":{\"name\":\"grep\",\"description\":\"Search file contents recursively for a regex; returns file:line:text matches (max 200).\",\"parameters\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"},\"path\":{\"type\":\"string\",\"description\":\"directory or file, default .\"}},\"required\":[\"pattern\"]}}}]";
+let TOOLS = "[{\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"description\":\"Read a text file.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}}},{\"type\":\"function\",\"function\":{\"name\":\"write_file\",\"description\":\"Create or overwrite a file.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"content\":{\"type\":\"string\"}},\"required\":[\"path\",\"content\"]}}},{\"type\":\"function\",\"function\":{\"name\":\"edit_file\",\"description\":\"Replace one exact, unique occurrence of old_text with new_text in a file.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"old_text\":{\"type\":\"string\"},\"new_text\":{\"type\":\"string\"}},\"required\":[\"path\",\"old_text\",\"new_text\"]}}},{\"type\":\"function\",\"function\":{\"name\":\"list_dir\",\"description\":\"List a directory.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}}},{\"type\":\"function\",\"function\":{\"name\":\"bash\",\"description\":\"Run a shell command; returns combined output and exit status.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"command\":{\"type\":\"string\"}},\"required\":[\"command\"]}}},{\"type\":\"function\",\"function\":{\"name\":\"grep\",\"description\":\"Search file contents recursively for a regex; returns file:line:text matches (max 200).\",\"parameters\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"},\"path\":{\"type\":\"string\",\"description\":\"directory or file, default .\"}},\"required\":[\"pattern\"]}}},{\"type\":\"function\",\"function\":{\"name\":\"web_fetch\",\"description\":\"Fetch an http(s) URL and return its text (HTML tags stripped, max 20000 bytes).\",\"parameters\":{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\"}},\"required\":[\"url\"]}}}]";
 
 // --- key storage ------------------------------------------------------------
 
@@ -150,6 +150,21 @@ fn shell_quote(s: u8[:], out: u8[>..]&) {
     out.push('\'');
 }
 
+// Drops HTML tags and collapses runs of whitespace.
+fn strip_tags(html: u8[:], out: u8[>..]&) {
+    var in_tag = false;
+    var space = true;
+    for c in html {
+        if c == '<' { in_tag = true; }
+        else if c == '>' && in_tag { in_tag = false; }
+        else if !in_tag {
+            if c == ' ' || c == '\n' || c == '\t' || c == '\r' {
+                if !space { out.push(' '); space = true; }
+            } else { out.push(c); space = false; }
+        }
+    }
+}
+
 fn run_tool(name: u8[:], arguments: u8[:], out: u8[>..]&) {
     var doc: json::Node[>..] = [];
     var dec: u8[>..] = [];
@@ -184,6 +199,20 @@ fn run_tool(name: u8[:], arguments: u8[:], out: u8[>..]&) {
         result.append(new);
         result.append(text[at + old.len..]);
         if write_file(path, result) { out.append("ok"); } else { out.append("error: cannot write file"); }
+    } else if name == "web_fetch" {
+        var url: u8[>..] = [];
+        arg_str(root, "url", url);
+        if !(starts_with(url, "http://") || starts_with(url, "https://")) { out.append("error: url must start with http:// or https://"); return; }
+        if !approve(str("fetch ", url)) { out.append("error: user denied"); return; }
+        gc_spinner_start("fetching");
+        var page: u8[>..] = [];
+        let status = gc_http_get(url, page);
+        gc_spinner_stop();
+        if status < 200 || status >= 300 { format(out, "error: http ", status); return; }
+        var text: u8[>..] = [];
+        if find(page, "<") >= 0 { strip_tags(page, text); } else { text.append(page); }
+        if text.len > 20000 { text.pop_n(text.len - 20000); }
+        out.append(text);
     } else if name == "grep" {
         var pattern: u8[>..] = [];
         arg_str(root, "pattern", pattern);

@@ -212,6 +212,11 @@ static int32_t gc_http_get(sl_u8 url, gs_rref out) {
     curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, gc_write_cb);
     curl_easy_setopt(c, CURLOPT_WRITEDATA, (void *)&out);
     curl_easy_setopt(c, CURLOPT_TIMEOUT, 30L);
+    curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(c, CURLOPT_MAXREDIRS, 5L);
+    curl_easy_setopt(c, CURLOPT_USERAGENT, "goosecode/0.2");
+    curl_easy_setopt(c, CURLOPT_PROTOCOLS_STR, "http,https");
+    curl_easy_setopt(c, CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
     CURLcode rc = curl_easy_perform(c);
     long status = 0;
     if (rc == CURLE_OK) curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
