@@ -481,7 +481,7 @@ fn print_help() {
     print("goosecode ", VERSION, " - a coding agent in Goose, powered by OpenRouter\n");
     print("usage: goosecode [options] [prompt]\n       goosecode login\n");
     print("options:\n  -m <model>   model id (default anthropic/claude-sonnet-4.5)\n  -y           auto-approve writes, edits and shell commands\n  -h, --help   this help\n  -v, --version\n");
-    print("session commands:\n  /model [filter]  pick a model\n  /clear           forget the conversation\n  /undo            drop the last exchange\n  /save [name]     save the conversation (default: last)\n  /load [name]     restore a saved conversation\n  /sessions        list saved conversations\n  /usage           tokens and cost this session\n  /login           log in again\n  /help            this help\n  /exit            quit (or Ctrl-D)");
+    print("session commands:\n  !<command>       run a shell command yourself\n  /model [filter]  pick a model\n  /clear           forget the conversation\n  /undo            drop the last exchange\n  /save [name]     save the conversation (default: last)\n  /load [name]     restore a saved conversation\n  /sessions        list saved conversations\n  /usage           tokens and cost this session\n  /login           log in again\n  /help            this help\n  /exit            quit (or Ctrl-D)");
 }
 
 fn main() {
@@ -541,6 +541,14 @@ fn main() {
         if text.len == 0 { continue; }
         if text == "/exit" { break; }
         if text == "/help" { print_help(); continue; }
+        if text[0] == '!' {
+            var out: u8[>..] = [];
+            let status = gc_run(text[1..], out);
+            write_stdout(out);
+            if out.len > 0 && out[out.len - 1] != '\n' { write_stdout("\n"); }
+            if status != 0 { print("\x1b[2m[exit ", status, "]\x1b[0m"); }
+            continue;
+        }
         if text == "/usage" {
             print("session: ", total_in, " tokens in, ", total_out, " out, ", money(total_cost));
             continue;
