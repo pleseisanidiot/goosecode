@@ -314,16 +314,32 @@ static int32_t gc_http_stream(sl_u8 url, sl_u8 bearer, sl_u8 body, gs_rref out) 
     return (int32_t)status;
 }
 
-/* Line editing with history. False at EOF. */
-static uint8_t gc_readline(sl_u8 prompt, gs_rref out) {
+static char *gc_hist_path = NULL;
+
+/* Loads the history file (creating it) and remembers it for later appends. */
+static void gc_history_init(sl_u8 path) {
+    gc_hist_path = gc_dup(path);
+    stifle_history(1000);
+    if (read_history(gc_hist_path)) write_history(gc_hist_path);
+}
+
+static uint8_t gc_prompt(sl_u8 prompt, gs_rref out, int remember) {
     char *p = gc_dup(prompt);
     gc_at_prompt = 1;
     char *l = readline(p);
     gc_at_prompt = 0;
     free(p);
     if (!l) return 0;
-    if (*l) add_history(l);
+    if (remember && *l) {
+        add_history(l);
+        if (gc_hist_path) append_history(1, gc_hist_path);
+    }
     gs_bld_append(out, l, strlen(l));
     free(l);
     return 1;
 }
+
+/* Line editing; the line goes into the persistent history. False at EOF. */
+static uint8_t gc_readline(sl_u8 prompt, gs_rref out) { return gc_prompt(prompt, out, 1); }
+/* The same without recording the answer (confirmations, pickers). */
+static uint8_t gc_ask(sl_u8 prompt, gs_rref out) { return gc_prompt(prompt, out, 0); }

@@ -18,6 +18,8 @@ extern fn gc_oauth_wait(port: i32, out: u8[>..]&) -> bool;
 extern fn gc_open_url(url: const u8[:]);
 extern fn gc_http_stream(url: const u8[:], bearer: const u8[:], body: const u8[:], out: u8[>..]&) -> i32;
 extern fn gc_readline(prompt: const u8[:], out: u8[>..]&) -> bool;
+extern fn gc_ask(prompt: const u8[:], out: u8[>..]&) -> bool;
+extern fn gc_history_init(path: const u8[:]);
 extern fn gc_http_get(url: const u8[:], out: u8[>..]&) -> i32;
 extern fn gc_init_signals();
 extern fn gc_cancelled() -> bool;
@@ -122,7 +124,7 @@ var auto_approve = false;
 fn approve(what: u8[:]) -> bool {
     if auto_approve { return true; }
     var line: u8[>..] = [];
-    if !gc_readline(str("  allow ", what, "? [y/N/a(lways)] "), line) { return false; }
+    if !gc_ask(str("  allow ", what, "? [y/N/a(lways)] "), line) { return false; }
     if line == "a" { auto_approve = true; return true; }
     return line == "y";
 }
@@ -357,7 +359,7 @@ fn pick_model(filter: u8[:], model: u8[>..]&) {
     };
     if total > shown { print("  \x1b[2m… ", total - shown, " more; narrow with /model <filter>\x1b[0m"); }
     var choice: u8[>..] = [];
-    if !gc_readline("pick a number (enter cancels): ", choice) { return; }
+    if !gc_ask("pick a number (enter cancels): ", choice) { return; }
     let num, ok = parse_int(trim(choice));
     guard ok && num >= 1 && num <= shown else { print("cancelled"); return; }
     var k = 0;
@@ -449,6 +451,11 @@ fn main() {
     }
 
     gc_init_signals();
+    var home: u8[>..] = [];
+    if !env("HOME", home) { home.append("."); }
+    make_dir(str(home, "/.config"));
+    make_dir(str(home, "/.config/goosecode"));
+    gc_history_init(str(home, "/.config/goosecode/history"));
     print("goosecode — model ", model, "\n/model [filter] pick a model · /clear · /login · /exit · Ctrl-C cancels a reply");
     loop {
         var line: u8[>..] = [];
