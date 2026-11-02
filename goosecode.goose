@@ -121,6 +121,12 @@ fn login() -> bool {
 
 var auto_approve = false;
 
+// Red/green preview of an edit, shown before the user decides.
+fn show_diff(old: u8[:], new: u8[:]) {
+    each_split(old, '\n') { print("\x1b[31m  - ", it, "\x1b[0m"); };
+    each_split(new, '\n') { print("\x1b[32m  + ", it, "\x1b[0m"); };
+}
+
 fn approve(what: u8[:]) -> bool {
     if auto_approve { return true; }
     var line: u8[>..] = [];
@@ -158,6 +164,7 @@ fn run_tool(name: u8[:], arguments: u8[:], out: u8[>..]&) {
     } else if name == "write_file" {
         var content: u8[>..] = [];
         arg_str(root, "content", content);
+        if file_exists(path) { print("\x1b[33m  overwrites existing ", path, "\x1b[0m"); }
         if !approve(str("write ", path, " (", content.len, " bytes)")) { out.append("error: user denied"); return; }
         if write_file(path, content) { out.append("ok"); } else { out.append("error: cannot write file"); }
     } else if name == "edit_file" {
@@ -170,6 +177,7 @@ fn run_tool(name: u8[:], arguments: u8[:], out: u8[>..]&) {
         let at = find(text, old);
         if old.len == 0 || at < 0 { out.append("error: old_text not found"); return; }
         if find(text[at + old.len..], old) >= 0 { out.append("error: old_text is not unique"); return; }
+        show_diff(old, new);
         if !approve(str("edit ", path)) { out.append("error: user denied"); return; }
         var result: u8[>..] = [];
         result.append(text[..at]);
