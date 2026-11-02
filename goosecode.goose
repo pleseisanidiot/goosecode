@@ -58,6 +58,28 @@ fn save_key(key: u8[:]) -> bool {
     return write_file_atomic(key_path(), key);
 }
 
+// --- saved sessions -----------------------------------------------------------
+
+fn sessions_dir() -> u8[>..] {
+    var home: u8[>..] = [];
+    if !env("HOME", home) { home.append("."); }
+    return str(home, "/.config/goosecode/sessions");
+}
+
+// Session names are plain words: no path tricks.
+fn session_path(name: u8[:], out: u8[>..]&) -> bool {
+    if name.len == 0 { return false; }
+    for c in name {
+        let ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_';
+        if !ok { return false; }
+    }
+    out.append(sessions_dir());
+    out.append("/");
+    out.append(name);
+    out.append(".json");
+    return true;
+}
+
 // --- OAuth PKCE against OpenRouter -----------------------------------------
 
 fn login() -> bool {
@@ -348,11 +370,40 @@ fn pick_model(filter: u8[:], model: u8[>..]&) {
     print("model: ", model);
 }
 
+fn save_session(name: u8[:]) {
+    var home: u8[>..] = [];
+    if !env("HOME", home) { home.append("."); }
+    make_dir(str(home, "/.config"));
+    make_dir(str(home, "/.config/goosecode"));
+    make_dir(sessions_dir());
+    var path: u8[>..] = [];
+    if !session_path(name, path) { print("session names: letters, digits, - and _ only"); return; }
+    if write_file_atomic(path, history) { print("saved ", path); } else { print("could not write ", path); }
+}
+
+fn load_session(name: u8[:]) {
+    var path: u8[>..] = [];
+    if !session_path(name, path) { print("session names: letters, digits, - and _ only"); return; }
+    var data: u8[>..] = [];
+    if !read_file(path, data) { print("no session '", name, "'"); return; }
+    history.pop_n(history.len);
+    history.append(data);
+    print("loaded ", name, " (", history.len, " bytes of history)");
+}
+
+fn list_sessions() {
+    var names: u8[>..] = [];
+    if !list_dir(sessions_dir(), names) { print("no saved sessions"); return; }
+    each_split(names, '\n') {
+        if ends_with(it, ".json") { print("  ", it[..it.len - 5]); }
+    };
+}
+
 fn print_help() {
     print("goosecode ", VERSION, " - a coding agent in Goose, powered by OpenRouter\n");
     print("usage: goosecode [options] [prompt]\n       goosecode login\n");
     print("options:\n  -m <model>   model id (default anthropic/claude-sonnet-4.5)\n  -y           auto-approve writes, edits and shell commands\n  -h, --help   this help\n  -v, --version\n");
-    print("session commands:\n  /model [filter]  pick a model\n  /clear           forget the conversation\n  /login           log in again\n  /help            this help\n  /exit            quit (or Ctrl-D)");
+    print("session commands:\n  /model [filter]  pick a model\n  /clear           forget the conversation\n  /save [name]     save the conversation (default: last)\n  /load [name]     restore a saved conversation\n  /sessions        list saved conversations\n  /login           log in again\n  /help            this help\n  /exit            quit (or Ctrl-D)");
 }
 
 fn main() {
@@ -406,6 +457,11 @@ fn main() {
         if text.len == 0 { continue; }
         if text == "/exit" { break; }
         if text == "/help" { print_help(); continue; }
+        if text == "/save" { save_session("last"); continue; }
+        if starts_with(text, "/save ") { save_session(trim(text[6..])); continue; }
+        if text == "/load" { load_session("last"); continue; }
+        if starts_with(text, "/load ") { load_session(trim(text[6..])); continue; }
+        if text == "/sessions" { list_sessions(); continue; }
         if text == "/clear" { history.pop_n(history.len); print("cleared"); continue; }
         if text == "/login" { if login() { key = load_key(); } continue; }
         if text == "/model" || text == "/models" { pick_model("", model); continue; }
