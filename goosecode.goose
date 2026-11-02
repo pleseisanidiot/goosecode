@@ -34,7 +34,7 @@ let CALLBACK_PORT: i32 = 3000;
 let SYSTEM_PROMPT = "You are goosecode, a concise coding agent running in the user's terminal. Use the tools to inspect and change files and run commands in the current working directory. Prefer small, verified steps. When done, summarize briefly.";
 
 // name, description, parameter schema -- OpenAI tool format.
-let TOOLS = "[{\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"description\":\"Read a text file.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}}},{\"type\":\"function\",\"function\":{\"name\":\"write_file\",\"description\":\"Create or overwrite a file.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"content\":{\"type\":\"string\"}},\"required\":[\"path\",\"content\"]}}},{\"type\":\"function\",\"function\":{\"name\":\"edit_file\",\"description\":\"Replace one exact, unique occurrence of old_text with new_text in a file.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"old_text\":{\"type\":\"string\"},\"new_text\":{\"type\":\"string\"}},\"required\":[\"path\",\"old_text\",\"new_text\"]}}},{\"type\":\"function\",\"function\":{\"name\":\"list_dir\",\"description\":\"List a directory.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}}},{\"type\":\"function\",\"function\":{\"name\":\"bash\",\"description\":\"Run a shell command; returns combined output and exit status.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"command\":{\"type\":\"string\"}},\"required\":[\"command\"]}}}]";
+let TOOLS = "[{\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"description\":\"Read a text file.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}}},{\"type\":\"function\",\"function\":{\"name\":\"write_file\",\"description\":\"Create or overwrite a file.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"content\":{\"type\":\"string\"}},\"required\":[\"path\",\"content\"]}}},{\"type\":\"function\",\"function\":{\"name\":\"edit_file\",\"description\":\"Replace one exact, unique occurrence of old_text with new_text in a file.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"old_text\":{\"type\":\"string\"},\"new_text\":{\"type\":\"string\"}},\"required\":[\"path\",\"old_text\",\"new_text\"]}}},{\"type\":\"function\",\"function\":{\"name\":\"list_dir\",\"description\":\"List a directory.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}}},{\"type\":\"function\",\"function\":{\"name\":\"bash\",\"description\":\"Run a shell command; returns combined output and exit status.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"command\":{\"type\":\"string\"}},\"required\":[\"command\"]}}},{\"type\":\"function\",\"function\":{\"name\":\"grep\",\"description\":\"Search file contents recursively for a regex; returns file:line:text matches (max 200).\",\"parameters\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"},\"path\":{\"type\":\"string\",\"description\":\"directory or file, default .\"}},\"required\":[\"pattern\"]}}}]";
 
 // --- key storage ------------------------------------------------------------
 
@@ -135,6 +135,15 @@ fn arg_str(args: json::Node?, name: u8[:], out: u8[>..]&) -> bool {
     return ok;
 }
 
+// 'x' -> 'x' with embedded quotes escaped, safe as one shell word.
+fn shell_quote(s: u8[:], out: u8[>..]&) {
+    out.push('\'');
+    for c in s {
+        if c == '\'' { out.append("'\\''"); } else { out.push(c); }
+    }
+    out.push('\'');
+}
+
 fn run_tool(name: u8[:], arguments: u8[:], out: u8[>..]&) {
     var doc: json::Node[>..] = [];
     var dec: u8[>..] = [];
@@ -167,6 +176,20 @@ fn run_tool(name: u8[:], arguments: u8[:], out: u8[>..]&) {
         result.append(new);
         result.append(text[at + old.len..]);
         if write_file(path, result) { out.append("ok"); } else { out.append("error: cannot write file"); }
+    } else if name == "grep" {
+        var pattern: u8[>..] = [];
+        arg_str(root, "pattern", pattern);
+        if pattern.len == 0 { out.append("error: empty pattern"); return; }
+        if path.len == 0 { path.append("."); }
+        var qp: u8[>..] = [];
+        var qd: u8[>..] = [];
+        shell_quote(pattern, qp);
+        shell_quote(path, qd);
+        var cmd: u8[>..] = [];
+        format(cmd, "(command -v rg >/dev/null && rg -n --no-heading -e ", qp, " ", qd,
+               " || grep -rnI --exclude-dir=.git -e ", qp, " ", qd, ") | head -200");
+        gc_run(cmd, out);
+        if out.len == 0 { out.append("no matches"); }
     } else if name == "bash" {
         var cmd: u8[>..] = [];
         arg_str(root, "command", cmd);
