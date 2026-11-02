@@ -26,6 +26,7 @@ extern fn gc_spinner_start(label: const u8[:]);
 extern fn gc_spinner_stop();
 extern fn gc_run(cmd: const u8[:], out: u8[>..]&) -> i32;
 
+let VERSION = "0.2.0";
 var API: u8[>..] = [];   // GOOSECODE_API overrides, for testing
 let CALLBACK_PORT: i32 = 3000;
 let SYSTEM_PROMPT = "You are goosecode, a concise coding agent running in the user's terminal. Use the tools to inspect and change files and run commands in the current working directory. Prefer small, verified steps. When done, summarize briefly.";
@@ -347,6 +348,13 @@ fn pick_model(filter: u8[:], model: u8[>..]&) {
     print("model: ", model);
 }
 
+fn print_help() {
+    print("goosecode ", VERSION, " - a coding agent in Goose, powered by OpenRouter\n");
+    print("usage: goosecode [options] [prompt]\n       goosecode login\n");
+    print("options:\n  -m <model>   model id (default anthropic/claude-sonnet-4.5)\n  -y           auto-approve writes, edits and shell commands\n  -h, --help   this help\n  -v, --version\n");
+    print("session commands:\n  /model [filter]  pick a model\n  /clear           forget the conversation\n  /login           log in again\n  /help            this help\n  /exit            quit (or Ctrl-D)");
+}
+
 fn main() {
     if !env("GOOSECODE_API", API) || API.len == 0 { API.pop_n(API.len); API.append("https://openrouter.ai/api/v1"); }
     let argv = args();
@@ -361,6 +369,12 @@ fn main() {
             model.pop_n(model.len);
             model.append(argv[i + 1]);
             i++;
+        } else if argv[i] == "-h" || argv[i] == "--help" {
+            print_help();
+            exit(0);
+        } else if argv[i] == "-v" || argv[i] == "--version" {
+            print("goosecode ", VERSION);
+            exit(0);
         } else if argv[i] == "-y" {
             auto_approve = true;
         } else {
@@ -391,6 +405,7 @@ fn main() {
         let text = trim(line);
         if text.len == 0 { continue; }
         if text == "/exit" { break; }
+        if text == "/help" { print_help(); continue; }
         if text == "/clear" { history.pop_n(history.len); print("cleared"); continue; }
         if text == "/login" { if login() { key = load_key(); } continue; }
         if text == "/model" || text == "/models" { pick_model("", model); continue; }
