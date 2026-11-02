@@ -33,3 +33,7 @@ goosecode -m <model> -y    # choose model; auto-approve tools
 
 `OPENROUTER_API_KEY` overrides the stored key; `GOOSECODE_API` overrides the API base URL.
 Interactive commands: `/model [filter]`, `/clear`, `/login`, `/exit`.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
