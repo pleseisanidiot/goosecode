@@ -182,6 +182,17 @@ fn run_tool(name: u8[:], arguments: u8[:], out: u8[>..]&) {
 
 // --- the agent loop ------------------------------------------------------------
 
+// Project instructions: GOOSECODE.md (or AGENTS.md) in the working directory.
+var project_notes: u8[>..] = [];
+var project_notes_file: u8[>..] = [];
+
+fn load_project_notes() {
+    var raw: u8[>..] = [];
+    if read_file("GOOSECODE.md", raw) { project_notes_file.append("GOOSECODE.md"); }
+    else if read_file("AGENTS.md", raw) { project_notes_file.append("AGENTS.md"); }
+    project_notes.append(trim(raw));
+}
+
 // Messages are kept as comma-separated JSON objects, ready to splice in.
 var history: u8[>..] = [];
 
@@ -243,7 +254,12 @@ fn turn(key: u8[:], model: u8[:]) {
         body.append("{\"stream\":true,\"model\":");
         json::format_string(body, model);
         body.append(",\"messages\":[{\"role\":\"system\",\"content\":");
-        json::format_string(body, SYSTEM_PROMPT);
+        var system: u8[>..] = [];
+        system.append(SYSTEM_PROMPT);
+        if project_notes.len > 0 {
+            format(system, "\n\nProject instructions from ", project_notes_file, ":\n", project_notes);
+        }
+        json::format_string(body, system);
         body.append("},");
         body.append(history);
         body.append("],\"tools\":");
@@ -437,6 +453,7 @@ fn main() {
         i++;
     }
 
+    load_project_notes();
     var key = load_key();
     if key.len == 0 {
         print("Not logged in.");
@@ -456,7 +473,7 @@ fn main() {
     make_dir(str(home, "/.config"));
     make_dir(str(home, "/.config/goosecode"));
     gc_history_init(str(home, "/.config/goosecode/history"));
-    print("goosecode — model ", model, "\n/model [filter] pick a model · /clear · /login · /exit · Ctrl-C cancels a reply");
+    print("goosecode — model ", model, if project_notes_file.len > 0 { str("\nloaded ", project_notes_file) } else { str("") }, "\n/model [filter] pick a model · /clear · /login · /exit · Ctrl-C cancels a reply");
     loop {
         var line: u8[>..] = [];
         if !gc_readline("\x01\x1b[1;32m\x02> \x01\x1b[0m\x02", line) { break; }
